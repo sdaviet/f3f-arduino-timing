@@ -6,9 +6,11 @@
 
 
 #define SLAVE_ADDRESS 0x05
-const byte ledPin = 4;
 const byte baseAPin = 2;
 const byte baseBPin = 3;
+const byte voltagePin = A1;
+const byte buzzerPin = 12;
+const byte loopDelay = 5;
 
 enum chronoStatus{
   WaitToLaunch,
@@ -29,7 +31,9 @@ enum i2c_request{
   getStatus,
   getLapCount,
   reset,
-  getTime=10
+  getTime=10,
+  getVoltage=100,
+  setBuzzerTime=101
   };
 
 typedef struct{
@@ -37,7 +41,6 @@ typedef struct{
   byte nbData;
 }i2cStr;
   
-volatile byte ledState = LOW;
 volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
@@ -46,12 +49,20 @@ volatile String timestr="";
 volatile chronoStr chrono={0};
 volatile i2cStr i2cReceive, i2cSend;
 volatile unsigned long nbinterruptA=0, nbinterruptB=0;
-volatile byte debug=false;
+volatile int analogVoltage=0;
+volatile byte askAnalogRead=0;
+volatile byte buzzerCmd=0;
+volatile int buzzerTime=500;  //in milliseconds
+volatile int buzzerCount=0;   //in milliseconds
+volatile byte buzzerState=false;
+volatile byte debug=true;
+
+//void setBuzzer(byte cmd);
 
 // the setup function runs once when you press reset or power the board
 void setup() {
-  // initialize digital pin LED_BUILTIN as an output.
-  pinMode(ledPin, OUTPUT);
+  // initialize digital pin LED_BUILTIN and buzzer PIN as an output.
+  pinMode(buzzerPin, OUTPUT);
   //Initialize buttons pin in interrupt mode
   pinMode(baseAPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(baseAPin), baseA_Interrupt, FALLING);
@@ -78,8 +89,8 @@ void setup() {
   //Only for debug
   Serial.begin(57600);
   while(!Serial){
+    delay(100);
     if (debug){
-      delay(100);
       Serial.println("F3F timer connected");
     }
   }
@@ -87,8 +98,15 @@ void setup() {
 
 // the loop function runs over and over again forever
 void loop() {
-  digitalWrite(ledPin, ledState);
-  ledState=false;
+  debugRun();
+  analogRun();
+  buzzerRun();
+  delay (loopDelay);
+}
+
+
+void debugRun(void)
+{
   if (debug){
     if (time1!=oldtime){
       Serial.print("Lap : ");
@@ -99,10 +117,52 @@ void loop() {
       Serial.print(nbinterruptA);
       Serial.print(", base B : ");
       Serial.println(nbinterruptB);
+      Serial.print("nb buzzer : ");
+      Serial.println(buzzerCmd);
     }
   }
-  delay (100);
 }
+
+void analogRun(void)
+{
+  if (askAnalogRead){
+    analogVoltage=analogRead(voltagePin);
+    Serial.println(analogVoltage);
+    askAnalogRead=false;
+  }
+}
+
+void buzzerRun(void){
+  if (buzzerCmd>0){
+    if (buzzerState==true & buzzerCount<=buzzerTime){
+      digitalWrite(buzzerPin, HIGH);
+      buzzerCount+=loopDelay;
+      if (buzzerCount>=buzzerTime){
+        buzzerState=false;
+        buzzerCount=0;        
+      }
+    }
+    if(buzzerState==false & buzzerCount<=buzzerTime){
+      digitalWrite(buzzerPin, LOW);
+      buzzerCount+=loopDelay;
+      if (buzzerCount>=buzzerTime){
+        buzzerState=false;
+        buzzerCount=0;        
+        if (buzzerCmd>0){
+          buzzerSet(buzzerCmd-1);
+        }
+      }
+    }
+  }
+}
+
+void buzzerSet(byte cmd)
+{
+  buzzerState=cmd>0;
+  buzzerCount=0;
+  buzzerCmd=cmd;
+}
+
 
 
 // callback for received data
@@ -161,10 +221,15 @@ void sendData(){
       memcpy(&i2cSend.data[1], &chrono.lap[i2cReceive.data[0]-getTime], sizeof(unsigned long));
       i2cSend.nbData=5;
       break;
-    default:
+    case getVoltage:
+      i2cSend.data[0]=i2cReceive.data[0];
+      memcpy(&i2cSend.data[1], &analogVoltage, sizeof(int));
+      i2cSend.nbData=3;
+      askAnalogRead=true;
+      break;
+  default:
       break;
   }
-  
   for (byte i=0; i<i2cSend.nbData; i++){
     Wire.write(i2cSend.data[i]);
   }
@@ -180,13 +245,11 @@ void sendData(){
 
 void baseA_Interrupt() {
   baseCheck(baseAPin);
-  ledState=true;
   nbinterruptA++;
 }
 
 void baseB_Interrupt(){
   baseCheck(baseBPin);
-  ledState=true;
   nbinterruptB++;
 }
 
@@ -194,6 +257,7 @@ void baseCheck(byte base) {
   if (chrono.runStatus==InStart || chrono.runStatus==InProgress){
     if (oldbase==base & chrono.runStatus==InStart){
       starttime=millis();
+      buzzerSet(1);
       chrono.runStatus=InProgress;
       if (debug){
         Serial.print("In Progress\n");          
@@ -204,14 +268,20 @@ void baseCheck(byte base) {
         time1=millis();
         chrono.lap[chrono.lapCount]=time1-starttime;
         chrono.lapCount++;
+        buzzerSet(1);
+        if (chrono.lapCount==9){
+          buzzerSet(2);
+        }
         if (chrono.lapCount>=10){
           chrono.runStatus=Finished;
+          buzzerSet(3);
         }
       }
     }
   }
   if (chrono.runStatus==Launched){
         chrono.runStatus=InStart;
+        buzzerCmd=1;
         if (debug){
           Serial.print("In Start\n");          
         }
