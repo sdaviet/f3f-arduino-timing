@@ -21,43 +21,48 @@ enum chronoStatus{
   };
 
 typedef struct{
-  unsigned long lap[10];
+  byte runStatus; 
+  int analogVoltage;
   byte lapCount;
-  chronoStatus runStatus; 
+  unsigned long lap[10];
 }chronoStr;
 
 enum i2c_request{
-  setStatus_InStart,
-  getStatus,
-  getLapCount,
-  reset,
-  getTime=10,
-  getVoltage=100,
-  setBuzzerTime=101
+  setStatus=0,
+  setBuzzerTime,
+  getData,
+  getData1,
+  reset
   };
 
 typedef struct{
   byte data[10];
   byte nbData;
-}i2cStr;
-  
+}i2cReceiveStr;
+
+typedef struct{
+  byte data[30];
+  byte nbData;
+}i2cSendStr;
+
 volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
 volatile byte oldbase=0;
 volatile String timestr="";
 volatile chronoStr chrono={0};
-volatile i2cStr i2cReceive, i2cSend;
+volatile i2cReceiveStr i2cReceive={0};
+volatile i2cSendStr i2cSend={0};
 volatile unsigned long nbinterruptA=0, nbinterruptB=0;
-volatile int analogVoltage=0;
-volatile byte askAnalogRead=0;
 volatile byte buzzerCmd=0;
-volatile int buzzerTime=500;  //in milliseconds
+volatile unsigned int buzzerTime=500;  //in milliseconds
 volatile int buzzerCount=0;   //in milliseconds
+volatile int analogReadTime=2000;
+volatile int analogCount=0;
 volatile byte buzzerState=false;
-volatile byte debug=true;
+volatile byte debug=false;
 
-//void setBuzzer(byte cmd);
+
 
 // the setup function runs once when you press reset or power the board
 void setup() {
@@ -72,7 +77,7 @@ void setup() {
   time1=0;
   oldtime=time1;  
   memset (&chrono, 0, sizeof(chrono));
-
+  chrono.analogVoltage=900;   //Initalize @12V for the first measurements
   //for debug only set status Launched
   if (debug){
     chrono.runStatus=Launched;
@@ -125,10 +130,11 @@ void debugRun(void)
 
 void analogRun(void)
 {
-  if (askAnalogRead){
-    analogVoltage=analogRead(voltagePin);
-    Serial.println(analogVoltage);
-    askAnalogRead=false;
+  if (analogCount>analogReadTime){
+    chrono.analogVoltage=analogRead(voltagePin);
+    analogCount=0;
+  }else{
+    analogCount+=loopDelay;
   }
 }
 
@@ -172,6 +178,20 @@ void receiveData(int byteCount){
     i2cReceive.data[i2cReceive.nbData] = Wire.read();
     i2cReceive.nbData++;
   }
+  switch(i2cReceive.data[0]){
+    case setStatus:
+      Serial.println("setStatus");
+      chrono.runStatus=i2cReceive.data[1];
+      break;
+    case setBuzzerTime:
+      Serial.println("setBuzzer");
+      buzzerTime=(i2cReceive.data[1]&0xff)|((i2cReceive.data[2]<<8)&0xff00);
+      Serial.print("time : ");
+      Serial.println(buzzerTime);
+      break;
+    default:
+      break;
+  }
   if (debug){
     Serial.print("data received: ");
     for (byte i=0; i<i2cReceive.nbData; i++){
@@ -184,55 +204,29 @@ void receiveData(int byteCount){
 
 // callback for sending data
 void sendData(){
-  memset(&i2cSend, 0, sizeof(i2cSend));
+//  memset(&i2cSend, 0, sizeof(i2cSend));
   switch(i2cReceive.data[0]){
-    case setStatus_InStart:
-      i2cSend.data[0]=setStatus_InStart;
-      chrono.runStatus=InStart;
-      i2cSend.data[1]=chrono.runStatus;
-      i2cSend.nbData=2;
+    case getData:
+      i2cSend.data[0]=chrono.runStatus;
+      memcpy(&i2cSend.data[1], &chrono.analogVoltage,2);
+      i2cSend.data[3]=chrono.lapCount;
+      memcpy(&i2cSend.data[4], chrono.lap,12);
+      i2cSend.nbData=16;
       break;
-    case getStatus:
-      i2cSend.data[0]=getStatus;
-      i2cSend.data[1]=chrono.runStatus;
-      i2cSend.nbData=2;
-      break;
-    case getLapCount:
-      i2cSend.data[0]=getLapCount;
-      i2cSend.data[1]=chrono.lapCount;
-      i2cSend.nbData=2;
+    case getData1:
+      memcpy(i2cSend.data, &chrono.lap[3], 28);
+      i2cSend.nbData=28;
       break;
     case reset:
+      Serial.println("reset");
       memset(&chrono, 0, sizeof(chronoStr));
       i2cSend.data[0]=reset;
       i2cSend.nbData=1;
       break;
-    case getTime:
-    case getTime+1:
-    case getTime+2:
-    case getTime+3:
-    case getTime+4:
-    case getTime+5:
-    case getTime+6:
-    case getTime+7:
-    case getTime+8:
-    case getTime+9:
-      i2cSend.data[0]=i2cReceive.data[0];
-      memcpy(&i2cSend.data[1], &chrono.lap[i2cReceive.data[0]-getTime], sizeof(unsigned long));
-      i2cSend.nbData=5;
-      break;
-    case getVoltage:
-      i2cSend.data[0]=i2cReceive.data[0];
-      memcpy(&i2cSend.data[1], &analogVoltage, sizeof(int));
-      i2cSend.nbData=3;
-      askAnalogRead=true;
-      break;
   default:
       break;
   }
-  for (byte i=0; i<i2cSend.nbData; i++){
-    Wire.write(i2cSend.data[i]);
-  }
+  Wire.write((byte *)i2cSend.data, i2cSend.nbData);
   if (debug){
     Serial.print("Data Send : ");
     for (byte i=0; i<i2cSend.nbData; i++){
