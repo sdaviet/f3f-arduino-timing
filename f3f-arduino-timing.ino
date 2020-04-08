@@ -13,7 +13,8 @@ const byte buzzerPin = 12;
 const byte loopDelay = 5;
 
 enum chronoStatus{
-  WaitToLaunch,
+  InWait=0,
+  WaitLaunch,
   Launched,
   InStart,
   InProgress,
@@ -48,6 +49,7 @@ typedef struct{
 volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
+volatile byte debuglap=false;
 volatile byte oldbase=0;
 volatile String timestr="";
 volatile chronoStr chrono={0};
@@ -113,17 +115,18 @@ void loop() {
 void debugRun(void)
 {
   if (debug){
-    if (time1!=oldtime){
+    if (debuglap=true){
       Serial.print("Lap : ");
       Serial.println(chrono.lapCount);
       Serial.println((float)chrono.lap[chrono.lapCount-1]/1000);
-      oldtime=time1;
+
       Serial.print("base A : ");
       Serial.print(nbinterruptA);
       Serial.print(", base B : ");
       Serial.println(nbinterruptB);
       Serial.print("nb buzzer : ");
       Serial.println(buzzerCmd);
+      debuglap=false;
     }
   }
 }
@@ -251,6 +254,7 @@ void baseCheck(byte base) {
   if (chrono.runStatus==InStart || chrono.runStatus==InProgress){
     if (oldbase==base & chrono.runStatus==InStart){
       starttime=millis();
+      oldtime=starttime;
       buzzerSet(1);
       chrono.runStatus=InProgress;
       if (debug){
@@ -260,7 +264,8 @@ void baseCheck(byte base) {
     if (oldbase!=base){
       if (chrono.runStatus==InProgress){
         time1=millis();
-        chrono.lap[chrono.lapCount]=time1-starttime;
+        chrono.lap[chrono.lapCount]=time1-oldtime;
+        oldtime=time1;
         chrono.lapCount++;
         buzzerSet(1);
         if (chrono.lapCount==9){
