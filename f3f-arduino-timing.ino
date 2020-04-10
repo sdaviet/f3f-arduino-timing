@@ -4,7 +4,6 @@
 */
 #include <Wire.h>
 
-
 #define SLAVE_ADDRESS 0x05
 const byte baseAPin = 2;
 const byte baseBPin = 3;
@@ -31,10 +30,11 @@ typedef struct{
 enum i2c_request{
   setStatus=0,
   setBuzzerTime,
+  setRebundBtn,
+  reset,
   getData,
-  getData1,
-  reset
-  };
+  getData1
+};
 
 typedef struct{
   byte data[10];
@@ -49,6 +49,7 @@ typedef struct{
 volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
+volatile unsigned long oldBaseA_event=0, oldBaseB_event=0, rebundBtn_time=0;
 volatile byte debuglap=false;
 volatile byte oldbase=0;
 volatile String timestr="";
@@ -192,6 +193,13 @@ void receiveData(int byteCount){
       Serial.print("time : ");
       Serial.println(buzzerTime);
       break;
+    case setRebundBtn:
+      rebundBtn_time=(i2cReceive.data[1]&0xff)|((i2cReceive.data[2]<<8)&0xff00);
+      break;
+    case reset:
+      Serial.println("reset");
+      memset(&chrono, 0, sizeof(chronoStr));
+      break;
     default:
       break;
   }
@@ -208,7 +216,7 @@ void receiveData(int byteCount){
 // callback for sending data
 void sendData(){
 //  memset(&i2cSend, 0, sizeof(i2cSend));
-  switch(i2cReceive.data[0]){
+   switch(i2cReceive.data[0]){
     case getData:
       i2cSend.data[0]=chrono.runStatus;
       memcpy(&i2cSend.data[1], &chrono.analogVoltage,2);
@@ -217,14 +225,8 @@ void sendData(){
       i2cSend.nbData=16;
       break;
     case getData1:
-      memcpy(i2cSend.data, &chrono.lap[3], 28);
-      i2cSend.nbData=28;
-      break;
-    case reset:
-      Serial.println("reset");
-      memset(&chrono, 0, sizeof(chronoStr));
-      i2cSend.data[0]=reset;
-      i2cSend.nbData=1;
+      memcpy(i2cSend.data, &chrono.lap[3], 32);
+      i2cSend.nbData=32;
       break;
   default:
       break;
@@ -241,13 +243,22 @@ void sendData(){
 }
 
 void baseA_Interrupt() {
-  baseCheck(baseAPin);
-  nbinterruptA++;
+  Serial.print(oldBaseA_event);
+  Serial.print(", millis : ");
+  Serial.println(millis());
+  if ((oldBaseA_event + rebundBtn_time) < millis()){
+    oldBaseA_event = millis();
+    baseCheck(baseAPin);
+    nbinterruptA++;
+  }
 }
 
 void baseB_Interrupt(){
-  baseCheck(baseBPin);
-  nbinterruptB++;
+  if ((oldBaseB_event + rebundBtn_time) < millis()){
+    oldBaseB_event = millis();
+    baseCheck(baseBPin);
+    nbinterruptB++;
+  }
 }
 
 void baseCheck(byte base) {
@@ -265,6 +276,10 @@ void baseCheck(byte base) {
       if (chrono.runStatus==InProgress){
         time1=millis();
         chrono.lap[chrono.lapCount]=time1-oldtime;
+        Serial.print("chrono : ");
+        Serial.print(chrono.lapCount);
+        Serial.print(", time : ");
+        Serial.println(chrono.lap[chrono.lapCount]);
         oldtime=time1;
         chrono.lapCount++;
         buzzerSet(1);
