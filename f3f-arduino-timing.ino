@@ -28,7 +28,7 @@ typedef struct{
 }chronoStr;
 
 enum i2c_request{
-  setStatus=0,
+  setStatus=1,
   setBuzzerTime,
   setRebundBtn,
   reset,
@@ -50,7 +50,6 @@ volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
 volatile unsigned long oldBaseA_event=0, oldBaseB_event=0, rebundBtn_time=0;
-volatile byte debuglap=false;
 volatile byte oldbase=0;
 volatile String timestr="";
 volatile chronoStr chrono={0};
@@ -64,7 +63,7 @@ volatile int analogReadTime=2000;
 volatile int analogCount=0;
 volatile byte buzzerState=false;
 volatile byte debug=false;
-
+volatile byte debuglap=false;
 
 
 // the setup function runs once when you press reset or power the board
@@ -73,9 +72,9 @@ void setup() {
   pinMode(buzzerPin, OUTPUT);
   //Initialize buttons pin in interrupt mode
   pinMode(baseAPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseAPin), baseA_Interrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(baseAPin), baseA_Interrupt, LOW);
   pinMode(baseBPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseBPin), baseB_Interrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(baseBPin), baseB_Interrupt, LOW);
   //Initialize time process & chrono var.
   time1=0;
   oldtime=time1;  
@@ -184,20 +183,30 @@ void receiveData(int byteCount){
   }
   switch(i2cReceive.data[0]){
     case setStatus:
-      Serial.println("setStatus");
       chrono.runStatus=i2cReceive.data[1];
+      if (debug){
+        Serial.print("I2c setStatus : ");
+        Serial.println(chrono.runStatus);        
+      }
+      if (chrono.runStatus==InStart or chrono.runStatus==InProgress){
+        baseCheck(baseAPin);
+      }
       break;
     case setBuzzerTime:
-      Serial.println("setBuzzer");
       buzzerTime=(i2cReceive.data[1]&0xff)|((i2cReceive.data[2]<<8)&0xff00);
-      Serial.print("time : ");
-      Serial.println(buzzerTime);
+      if (debug){
+        Serial.println("setBuzzer");
+        Serial.print("time : ");
+        Serial.println(buzzerTime);
+      }
       break;
     case setRebundBtn:
       rebundBtn_time=(i2cReceive.data[1]&0xff)|((i2cReceive.data[2]<<8)&0xff00);
       break;
     case reset:
-      Serial.println("reset");
+      if (debug){
+        Serial.println("reset");
+      }
       memset(&chrono, 0, sizeof(chronoStr));
       break;
     default:
@@ -243,9 +252,6 @@ void sendData(){
 }
 
 void baseA_Interrupt() {
-  Serial.print(oldBaseA_event);
-  Serial.print(", millis : ");
-  Serial.println(millis());
   if ((oldBaseA_event + rebundBtn_time) < millis()){
     oldBaseA_event = millis();
     baseCheck(baseAPin);
@@ -262,24 +268,25 @@ void baseB_Interrupt(){
 }
 
 void baseCheck(byte base) {
-  if (chrono.runStatus==InStart || chrono.runStatus==InProgress){
-    if (oldbase==base & chrono.runStatus==InStart){
-      starttime=millis();
-      oldtime=starttime;
-      buzzerSet(1);
-      chrono.runStatus=InProgress;
-      if (debug){
-        Serial.print("In Progress\n");          
+  switch(chrono.runStatus){
+    case Launched :
+      if (baseAPin==base){
+        chrono.runStatus=InStart;
+        buzzerSet(1);
       }
-    }
-    if (oldbase!=base){
-      if (chrono.runStatus==InProgress){
+      break;
+    case InStart:
+      if (baseAPin==base){
+        starttime=millis();
+        oldtime=starttime;
+        buzzerSet(1);
+        chrono.runStatus=InProgress;
+      }
+      break;
+    case InProgress:
+      if (oldbase!=base){
         time1=millis();
         chrono.lap[chrono.lapCount]=time1-oldtime;
-        Serial.print("chrono : ");
-        Serial.print(chrono.lapCount);
-        Serial.print(", time : ");
-        Serial.println(chrono.lap[chrono.lapCount]);
         oldtime=time1;
         chrono.lapCount++;
         buzzerSet(1);
@@ -291,14 +298,9 @@ void baseCheck(byte base) {
           buzzerSet(3);
         }
       }
-    }
+      break;
+    default:
+      break;  
   }
-  if (chrono.runStatus==Launched){
-        chrono.runStatus=InStart;
-        buzzerCmd=1;
-        if (debug){
-          Serial.print("In Start\n");          
-        }
-  }
-  oldbase=base;
+  oldbase=base;        
 }
