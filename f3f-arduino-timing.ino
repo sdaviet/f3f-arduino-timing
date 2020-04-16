@@ -9,7 +9,7 @@ const byte baseAPin = 2;
 const byte baseBPin = 3;
 const byte voltagePin = A1;
 const byte buzzerPin = 12;
-const byte loopDelay = 5;
+const byte loopDelay = 100;
 
 enum chronoStatus{
   InWait=0,
@@ -17,8 +17,9 @@ enum chronoStatus{
   Launched,
   InStart,
   InProgress,
+  WaitAltitude,
   Finished
-  };
+};
 
 typedef struct{
   byte runStatus; 
@@ -49,6 +50,8 @@ typedef struct{
 volatile unsigned long time1=0;
 volatile unsigned long oldtime=0;
 volatile unsigned long starttime=0;
+volatile unsigned long startaltitudetime=0;
+
 volatile unsigned long oldBaseA_event=0, oldBaseB_event=0, rebundBtn_time=0;
 volatile byte oldbase=0;
 volatile String timestr="";
@@ -72,9 +75,9 @@ void setup() {
   pinMode(buzzerPin, OUTPUT);
   //Initialize buttons pin in interrupt mode
   pinMode(baseAPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseAPin), baseA_Interrupt, LOW);
+  attachInterrupt(digitalPinToInterrupt(baseAPin), baseA_Interrupt, RISING);
   pinMode(baseBPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseBPin), baseB_Interrupt, LOW);
+  attachInterrupt(digitalPinToInterrupt(baseBPin), baseB_Interrupt, RISING);
   //Initialize time process & chrono var.
   time1=0;
   oldtime=time1;  
@@ -108,6 +111,9 @@ void loop() {
   debugRun();
   analogRun();
   buzzerRun();
+  if (chrono.runStatus==WaitAltitude){
+    baseCheck(0);
+  }
   delay (loopDelay);
 }
 
@@ -177,19 +183,22 @@ void buzzerSet(byte cmd)
 // callback for received data
 void receiveData(int byteCount){
   memset(&i2cReceive,0, sizeof(i2cReceive));
-  while(Wire.available()) {
+  while(Wire.available() and i2cReceive.nbData<sizeof (i2cReceive.data)) {
     i2cReceive.data[i2cReceive.nbData] = Wire.read();
     i2cReceive.nbData++;
   }
+  
+  
   switch(i2cReceive.data[0]){
     case setStatus:
-      chrono.runStatus=i2cReceive.data[1];
+      if (chrono.runStatus==InStart or chrono.runStatus==InProgress){
+        baseCheck(baseAPin);
+      }else{
+        chrono.runStatus=i2cReceive.data[1];
+      }
       if (debug){
         Serial.print("I2c setStatus : ");
         Serial.println(chrono.runStatus);        
-      }
-      if (chrono.runStatus==InStart or chrono.runStatus==InProgress){
-        baseCheck(baseAPin);
       }
       break;
     case setBuzzerTime:
@@ -208,6 +217,7 @@ void receiveData(int byteCount){
         Serial.println("reset");
       }
       memset(&chrono, 0, sizeof(chronoStr));
+      startaltitudetime=0;
       break;
     default:
       break;
@@ -294,10 +304,17 @@ void baseCheck(byte base) {
           buzzerSet(2);
         }
         if (chrono.lapCount>=10){
-          chrono.runStatus=Finished;
+          chrono.runStatus=WaitAltitude;
+          startaltitudetime=millis();
           buzzerSet(3);
         }
       }
+      break;
+     case WaitAltitude:
+        if ((startaltitudetime+5000)<millis()){
+          buzzerSet(3);
+          chrono.runStatus=Finished;
+        }
       break;
     default:
       break;  
