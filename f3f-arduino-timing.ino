@@ -189,7 +189,7 @@ void debugRun(void) {
         Serial.println(led.State);
         break;
       case 'r':
-        resetFunc;
+        resetFunc();
         break;
       case 's':
         Serial.print("status : ");
@@ -282,7 +282,6 @@ void receiveData(int byteCount) {
       chrono.runStatus = i2cReceive.data[1];
       break;
     case eventBaseA:
-      Serial.println("eventbaseA");
       baseCheck(BASEAPIN);
       break;
     case setBuzzerTime:
