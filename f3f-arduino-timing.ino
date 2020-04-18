@@ -39,7 +39,8 @@ enum i2c_request {
   setBuzzerTime,
   setRebundBtn,
   eventBaseA,
-  reset,
+  resetChrono,
+  reboot,
   getData,
   getData1
 };
@@ -302,8 +303,11 @@ void receiveData(int byteCount) {
       baseA.rebundBtn_time = (i2cReceive.data[1] & 0xff) | ((i2cReceive.data[2] << 8) & 0xff00);
       baseB.rebundBtn_time = (i2cReceive.data[1] & 0xff) | ((i2cReceive.data[2] << 8) & 0xff00);
       break;
-    case reset:
+    case resetChrono:
       memset(&chrono, 0, sizeof(chronoStr));
+      break;
+    case reboot:
+      resetFunc();
       break;
     default:
       break;
