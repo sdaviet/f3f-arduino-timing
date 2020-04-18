@@ -26,10 +26,8 @@ enum chronoStatus {
 
 typedef struct {
   byte runStatus;
-  int analogVoltage;
   byte lapCount;
   unsigned long lap[10];
-
   unsigned long time1;
   unsigned long oldtime;
   unsigned long starttime;
@@ -111,7 +109,7 @@ void setup() {
   //Initialize chrono var.
   memset (&debug, 0, sizeof(debug));
   memset (&chrono, 0, sizeof(chrono));
-  chrono.analogVoltage = 900; //Initalize @12V for the first measurements
+
   //Initialize I2C link as slave with Rpi
   memset (&i2cReceive, 0, sizeof(i2cReceive));
   memset (&i2cSend, 0, sizeof(i2cSend));
@@ -127,7 +125,8 @@ void setup() {
 
   accu.Pin = VOLTAGEPIN;
   accu.readTime = 2000;
-
+  accu.rawData= 900; //Initalize @12V for the first measurements
+  
   memset (&baseA, 0, sizeof(baseA));
   baseA.rebundBtn_time = 200;
   baseA.Pin = BASEAPIN;
@@ -200,7 +199,7 @@ void debugRun(void) {
         break;
       case 'v':
         Serial.print("voltage : ");
-        Serial.println(chrono.analogVoltage);
+        Serial.println(accu.rawData);
         break;
       case 'l':
         Serial.print("Lap count : ");
@@ -234,7 +233,6 @@ void analogRun(void)
 {
   if (accu.count > accu.readTime) {
     accu.rawData = analogRead(accu.Pin);
-    chrono.analogVoltage = accu.rawData;
     accu.count = 0;
   } else {
     accu.count += LOOPDELAY;
@@ -318,7 +316,7 @@ void sendData() {
   switch (i2cReceive.data[0]) {
     case getData:
       i2cSend.data[0] = chrono.runStatus;
-      memcpy(&i2cSend.data[1], &chrono.analogVoltage, 2);
+      memcpy(&i2cSend.data[1], &accu.rawData, 2);
       i2cSend.data[3] = chrono.lapCount;
       memcpy(&i2cSend.data[4], chrono.lap, 12);
       i2cSend.nbData = 16;
