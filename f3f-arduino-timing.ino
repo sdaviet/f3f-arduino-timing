@@ -10,6 +10,8 @@ const byte BASEBPIN = 3;
 const byte VOLTAGEPIN = A1;
 const byte BUZZERPIN = 12;
 const byte LOOPDELAY = 100;
+const int BUZZERTIME = 300;
+const int LEDTIME = 300;
 
 enum chronoStatus {
   InWait = 0,
@@ -101,6 +103,7 @@ void baseCheck(byte base);
 void debugRun(void);
 void analogRun(void);
 void buzzerRun(buzzerStr *data);
+void buzzerSet(buzzerStr *data, byte nb);
 void baseCheck(byte base);
 
 // the setup function runs once when you press reset or power the board
@@ -116,10 +119,10 @@ void setup() {
   memset (&led, 0, sizeof(led));
   memset (&accu, 0, sizeof(accu));
 
-  buzzer.Time = 500;
+  buzzer.Time = BUZZERTIME;
   buzzer.Pin = BUZZERPIN;
 
-  led.Time = 500;
+  led.Time = LEDTIME;
   led.Pin = LED_BUILTIN;
 
   accu.Pin = VOLTAGEPIN;
@@ -265,6 +268,16 @@ void buzzerRun(buzzerStr *data) {
   }
 }
 
+void buzzerSet(buzzerStr *data, byte nb)
+{
+  if (data->Cmd>0){
+    data->Cmd+=nb;
+  }else{
+    data->Cmd=nb;
+    data->State=true;
+  }
+}
+
 // callback for received data
 void receiveData(int byteCount) {
   memset(&i2cReceive, 0, sizeof(i2cReceive));
@@ -341,12 +354,12 @@ void baseCheck(byte base) {
     case Launched :
       if (BASEAPIN == base) {
         chrono.runStatus = InStart;
-        buzzer.Cmd = 1;
+        buzzerSet(&buzzer, 1);
       }
       break;
     case InStart:
       if (BASEAPIN == base) {
-        buzzer.Cmd = 1;
+        buzzerSet(&buzzer, 1);
         chrono.time1 = millis();
         chrono.oldtime = chrono.time1;
         chrono.lapCount=0;
@@ -364,7 +377,7 @@ void baseCheck(byte base) {
         if (chrono.lapCount >= 10) {
           chrono.runStatus = WaitAltitude;
           chrono.startaltitudetime = millis();
-          buzzer.Cmd = 3;
+          buzzerSet(&buzzer, 3);
         } else {
           chrono.runStatus = InProgressB;
         }
@@ -376,14 +389,15 @@ void baseCheck(byte base) {
         chrono.lap[chrono.lapCount] = chrono.time1 - chrono.oldtime;
         chrono.oldtime = chrono.time1;
         chrono.lapCount++;
-        buzzer.Cmd = 1;
         chrono.runStatus = InProgressA;
         if (chrono.lapCount == 9) {
-          buzzer.Cmd = 2;
+          buzzerSet(&buzzer, 2);
+        }else{
+          buzzerSet(&buzzer, 1);
         }
       }else{
         if (base == BASEAPIN and chrono.lapCount==0){
-          buzzer.Cmd = 1;
+          buzzerSet(&buzzer, 1);
         }
       }
       break;
@@ -394,7 +408,7 @@ void baseCheck(byte base) {
       }
       break;
     default:
-      buzzer.Cmd = 1;
+        buzzerSet(&buzzer, 1);
       break;
   }
 }
