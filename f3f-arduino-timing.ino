@@ -138,9 +138,9 @@ void setup() {
   pinMode(led.Pin, OUTPUT);
   //Initialize buttons pin in interrupt mode
   pinMode(baseA.Pin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseA.Pin), baseA_Interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(baseA.Pin), baseA_Interrupt, FALLING);
   pinMode(baseB.Pin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(baseB.Pin), baseB_Interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(baseB.Pin), baseB_Interrupt, FALLING);
 
   Wire.begin(SLAVE_ADDRESS);
   // define callbacks for i2c communication
