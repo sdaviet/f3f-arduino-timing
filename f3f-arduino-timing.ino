@@ -83,7 +83,7 @@ typedef struct {
 } debugStr;
 
 
-volatile chronoStr chrono = {0};
+volatile chronoStr chrono = {0}, chrono_old = {0};
 volatile i2cReceiveStr i2cReceive = {0};
 volatile i2cSendStr i2cSend = {0};
 volatile baseEventStr baseA = {0}, baseB = {0};
@@ -92,6 +92,7 @@ volatile buzzerStr buzzer = {0};
 volatile buzzerStr led = {0};
 volatile debugStr debug = {0};
 volatile unsigned int i = 0;
+volatile byte temp = 0;
 
 void(* resetFunc) (void) = 0;//declare reset function at address 0
 void baseA_Interrupt(void);
@@ -110,6 +111,7 @@ void setup() {
   //Initialize chrono var.
   memset (&debug, 0, sizeof(debug));
   memset (&chrono, 0, sizeof(chrono));
+  memset (&chrono_old, 0, sizeof(chrono_old));
 
   //Initialize I2C link as slave with Rpi
   memset (&i2cReceive, 0, sizeof(i2cReceive));
@@ -171,6 +173,19 @@ void loop() {
 
 
 void debugRun(void) {
+  temp = memcmp (&chrono, &chrono_old, sizeof(chrono));
+  if (temp != 0){
+    Serial.println ("chrono data changed : ");
+    Serial.println (chrono.runStatus);
+    Serial.print("Lap count : ");
+    Serial.println(chrono.lapCount);
+    for (i = 0; i < chrono.lapCount; i++) {
+      Serial.print("Lap : ");
+      Serial.println(i);
+      Serial.println((float)chrono.lap[i] / 1000);
+    }
+    memcpy(&chrono_old, &chrono, sizeof(chrono));
+  }
   if (Serial.available() > 0) {
     debug.received = Serial.read();
     switch (debug.received) {
@@ -284,11 +299,7 @@ void receiveData(int byteCount) {
     i2cReceive.data[i2cReceive.nbData] = Wire.read();
     i2cReceive.nbData++;
   }
-  if (i2cReceive.data[0]<setStatus and i2cReceive.data[0]>getData1) {
-    for (i = 0; i < i2cReceive.nbData; i++) {
-      Serial.println(i2cReceive.data[i2cReceive.nbData]);
-    }
-  }
+
   switch (i2cReceive.data[0]) {
     case setStatus:
       chrono.runStatus = i2cReceive.data[1];
@@ -323,7 +334,7 @@ void sendData() {
       memcpy(&i2cSend.data[1], &accu.rawData, 2);
       i2cSend.data[3] = chrono.lapCount;
       memcpy(&i2cSend.data[4], chrono.lap, 12);
-      i2cSend.nbData = 16;
+      i2cSend.nbData = 32;
       break;
     case getData1:
       memcpy(i2cSend.data, &chrono.lap[3], 32);
