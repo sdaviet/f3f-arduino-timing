@@ -55,10 +55,16 @@ typedef struct {
   byte nbData;
 } i2cSendStr;
 
+typedef struct{
+  char data_read[100];
+  byte nb_data;
+  byte data_available;
+}serialStr;
+
 typedef struct {
-  unsigned int Time;  //in milliseconds
-  int Count;        //in milliseconds
-  int Cmd;         //blink number
+  int Time;     //in milliseconds
+  int Count;    //in milliseconds
+  int Cmd;      //blink number
   byte State;   //buzzer state
   byte Pin;
 } buzzerStr;
@@ -86,6 +92,7 @@ typedef struct {
 volatile chronoStr chrono = {0}, chrono_old = {0};
 volatile i2cReceiveStr i2cReceive = {0};
 volatile i2cSendStr i2cSend = {0};
+volatile serialStr serial;
 volatile baseEventStr baseA = {0}, baseB = {0};
 volatile analogStr accu = {0};
 volatile buzzerStr buzzer = {0};
@@ -119,6 +126,7 @@ void setup() {
   memset (&buzzer, 0, sizeof(buzzer));
   memset (&led, 0, sizeof(led));
   memset (&accu, 0, sizeof(accu));
+  memset (&serial,0, sizeof(serial));
 
   buzzer.Time = BUZZERTIME;
   buzzer.Pin = BUZZERPIN;
@@ -175,76 +183,96 @@ void loop() {
 void debugRun(void) {
   temp = memcmp (&chrono, &chrono_old, sizeof(chrono));
   if (temp != 0){
-    Serial.println ("chrono data changed : ");
-    Serial.println (chrono.runStatus);
-    Serial.print("Lap count : ");
-    Serial.println(chrono.lapCount);
+    Serial.print("s");
+    Serial.print(chrono.runStatus);
+    Serial.print(",");
+    Serial.print(chrono.lapCount);
     for (i = 0; i < chrono.lapCount; i++) {
-      Serial.print("Lap : ");
-      Serial.println(i);
-      Serial.println((float)chrono.lap[i] / 1000);
+      Serial.print(",");
+      Serial.print(chrono.lap[i]);
     }
+    Serial.println("");
     memcpy(&chrono_old, &chrono, sizeof(chrono));
   }
-  if (Serial.available() > 0) {
-    debug.received = Serial.read();
-    switch (debug.received) {
-      case 'd':
-        led.Cmd = -1;
-        Serial.println("buzzer :");
-        Serial.print("cmd ");
-        Serial.println(buzzer.Cmd);
-        Serial.print("time ");
-        Serial.println(buzzer.Time);
-        Serial.print("state ");
-        Serial.println(buzzer.State);
-        Serial.println("led : ");
-        Serial.print("cmd ");
-        Serial.println(led.Cmd);
-        Serial.print("time ");
-        Serial.println(led.Time);
-        Serial.print("state ");
-        Serial.println(led.State);
-        break;
-      case 'r':
-        resetFunc();
-        break;
-      case 's':
-        Serial.print("status : ");
-        Serial.println (chrono.runStatus);
-        break;
-      case 'v':
-        Serial.print("voltage : ");
-        Serial.println(accu.rawData);
-        break;
-      case 'l':
-        Serial.print("Lap count : ");
-        Serial.println(chrono.lapCount);
-        for (i = 0; i < chrono.lapCount; i++) {
-          Serial.print("Lap : ");
-          Serial.println(i);
-          Serial.println((float)chrono.lap[i] / 1000);
-        }
-        break;
-      case 'b':
-        Serial.println("base A :");
-        Serial.print("rebund time : ");
-        Serial.println(baseA.rebundBtn_time);
-        Serial.print("nb interrrupt : ");
-        Serial.println(baseA.nbInterrupt);
-        Serial.println("base B :");
-        Serial.print("rebund time : ");
-        Serial.println(baseA.rebundBtn_time);
-        Serial.print("nb interrrupt : ");
-        Serial.println(baseB.nbInterrupt);
-
-      default:
-        break;
+  if (serial.data_available) {
+    char tmp = serial.data_read[0];
+    Serial.println(tmp);
+    if (tmp=='t'){
+      buzzer.Time=0;
+      for (i=1; i<serial.nb_data-1; i++){
+        buzzer.Time = buzzer.Time*10+(int)(serial.data_read[i]-'0');
+      }
+      led.Time = buzzer.Time;
+      Serial.println(buzzer.Time);
+    }else if (tmp=='l'){
+      Serial.print("Lap count : ");
+      Serial.println(chrono.lapCount);
+      for (i = 0; i < chrono.lapCount; i++) {
+        Serial.print("Lap : ");
+        Serial.println(i);
+        Serial.println((float)chrono.lap[i] / 1000);
+      }
+    }else if (tmp=='d'){
+      led.Cmd = -1;
+      Serial.println("buzzer :");
+      Serial.print("cmd ");
+      Serial.println(buzzer.Cmd);
+      Serial.print("time ");
+      Serial.println(buzzer.Time);
+      Serial.print("state ");
+      Serial.println(buzzer.State);
+      Serial.println("led : ");
+      Serial.print("cmd ");
+      Serial.println(led.Cmd);
+      Serial.print("time ");
+      Serial.println(led.Time);
+      Serial.print("state ");
+      Serial.println(led.State);
+    }else if (tmp=='s'){
+      chrono.runStatus=byte(serial.data_read[1]-'0');
+      String data ="status : ";
+      data+= chrono.runStatus;
+      Serial.println(data);
+    }else if (tmp=='b'){
+      Serial.println("base A :");
+      Serial.print("rebund time : ");
+      Serial.println(baseA.rebundBtn_time);
+      Serial.print("nb interrrupt : ");
+      Serial.println(baseA.nbInterrupt);
+      Serial.println("base B :");
+      Serial.print("rebund time : ");
+      Serial.println(baseA.rebundBtn_time);
+      Serial.print("nb interrrupt : ");
+      Serial.println(baseB.nbInterrupt);
+    }else if (tmp=='v'){
+      Serial.print("voltage : ");
+      Serial.println(accu.rawData);
+    }else if (tmp=='r'){
+      baseA.rebundBtn_time=0;
+      for (i=1; i<serial.nb_data-1; i++){
+        baseA.rebundBtn_time = baseA.rebundBtn_time*10+(int)(serial.data_read[i]-'0');
+      }
+      baseB.rebundBtn_time = baseA.rebundBtn_time;
     }
-  }
+    
+  memset(&serial, 0, sizeof(serial));
   buzzerRun(&led);
+  }
 }
 
+void serialEvent(){
+  while (Serial.available()){
+    if (serial.data_available==false){
+      serial.data_read[serial.nb_data]=(char)Serial.read();
+      if (serial.data_read[serial.nb_data]=='.'){
+        Serial.print("data available : ");
+        Serial.println((char*)serial.data_read);
+        serial.data_available=true;
+      }
+      serial.nb_data++;
+    }    
+  }  
+}
 void analogRun(void)
 {
   if (accu.count > accu.readTime) {
